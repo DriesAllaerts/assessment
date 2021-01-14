@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import xarray
 from scipy.interpolate import interp1d
+from scipy import optimize
 from mmctools.helper_functions import calc_wind, covariance, power_spectral_density, theta
 
 
