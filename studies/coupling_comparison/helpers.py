@@ -184,4 +184,84 @@ def calc_rotor_average(df,zhub,diameter):
     for field in df.columns:
         dfout[field] = np.mean(interp1d(heights,data[field].values,axis=1,fill_value='extrapolate')(np.linspace(zlow,zhigh,21)),axis=1)
 
+    dfout['alpha'] = calc_alpha(heights,data['wspd'].values,zhub,diameter)
+    dfout['psi']   = calc_psi(heights,data['wdir'].values,zhub,diameter)
     return pd.DataFrame(dfout,index=data.index)
+
+
+def calc_alpha(z,S,zh,D,ax=-1):
+    '''
+    Compute wind shear exponent by fitting a power law to
+    the velocity profile over the rotor disk region
+    Parameters
+    ----------
+    z: numpy 1D array of Nz
+        heights
+    S: numpy nD array
+        wind speed [m/s]
+    zh,D: float
+        hub height and radius of rotor disk
+    ax: int
+        axis corresponding to the vertical direction
+        default: last axis
+    Returns
+    -------
+    alpha: numpy nD-1 array
+        wind shear exponent
+    '''
+    z1 = zh - D/2.
+    z2 = zh + D/2.
+    zcc = np.linspace(z1,z2,10)
+
+    #Move specified ax to last position, then reshape to 2d array and iterate
+    Nz = S.shape[ax]
+    N  = int(S.size/Nz)
+    new_shape = np.moveaxis(S,ax,-1).shape[:-1]
+    alpha = np.zeros((N))
+    for i in range(N):
+        Sint = interp1d(z,np.moveaxis(S,ax,-1).reshape(N,Nz)[i,:],fill_value='extrapolate')(zcc)
+        Shub = interp1d(z,np.moveaxis(S,ax,-1).reshape(N,Nz)[i,:],fill_value='extrapolate')(zh)
+
+        f = lambda x, alpha: Shub*(x/zh)**alpha
+        popt,_ = optimize.curve_fit(f,zcc,Sint,1.0)
+        alpha[i] = popt[0]
+    return alpha.reshape(new_shape)
+
+
+def calc_psi(z,WD,zh,D,ax=-1):
+    '''
+    Compute wind veer by fitting a line to
+    the wind direction profile over the rotor disk region
+    Parameters
+    ----------
+    z: numpy 1D array of Nz
+        heights
+    WD: numpy nD array
+        wind direction [degrees]
+    zh,D: float
+        hub height and radius of rotor disk
+    ax: int
+        average wind veer over the rotor disk
+        default: last axis
+    Returns
+    -------
+    psi: numpy nD-1 array
+        average wind veer over the rotor disk
+    '''
+    z1 = zh - D/2.
+    z2 = zh + D/2.
+    zcc = np.linspace(z1,z2,10)
+
+    #Move specified ax to last position, then reshape to 2d array and iterate
+    Nz = WD.shape[ax]
+    N  = int(WD.size/Nz)
+    new_shape = np.moveaxis(WD,ax,-1).shape[:-1]
+    psi = np.zeros((N))
+    for i in range(N):
+        WDint = interp1d(z,np.moveaxis(WD,ax,-1).reshape(N,Nz)[i,:],fill_value='extrapolate')(zcc)
+        WDhub = interp1d(z,np.moveaxis(WD,ax,-1).reshape(N,Nz)[i,:],fill_value='extrapolate')(zh)
+
+        f = lambda x, *p: p[0]*x + p[1]
+        popt,_ = optimize.curve_fit(f,zcc-zh,WDint-WDhub,[1.0,0.0])
+        psi[i] = popt[0]
+    return psi.reshape(new_shape)
