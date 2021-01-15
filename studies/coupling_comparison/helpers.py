@@ -23,8 +23,8 @@ def load_wrf_reference_data(fpath):
     # Convert to pandas dataframe
     wrf = xa.to_dataframe()
     # Convert to standard names
-    wrf.rename({'U':'u','V':'v','W':'w','UST':'u*'},
-               axis='columns',inplace=True)
+    wrf.rename(columns={'U':'u','V':'v','W':'w','UST':'u*'},inplace=True)
+    wrf.rename_axis(index={'Time':'datetime'},inplace=True)
     # Compute wind speed and wind direction
     wrf['wspd'], wrf['wdir'] = calc_wind(wrf)
 
@@ -103,6 +103,30 @@ def calc_QOIs(df):
     df['TI'] = df['uu']*np.cos(ang)**2 + 2*df['uv']*np.sin(ang)*np.cos(ang) + df['vv']*np.sin(ang)**2
     df['TI'] = np.sqrt(df['TI']) / df['wspd']
 
+def calc_grad(df):
+    """
+    Calculate vertical gradient of specified field
+    """
+    # calculate at midpoints
+    tv = df.unstack(level='datetime')
+    dz = pd.Series(tv.reset_index()['height'].diff().values, index=tv.index) # dz and tv should have matching indices
+    tvgrad = tv.diff().divide(dz,axis=0)
+
+    # interpolate from midpoints back to original heights, for compatibility with original dataframe
+    zorig = dz.index.values
+    zmid = dz.index.values - dz/2
+    tvgrad = tvgrad.set_index(zmid) # first index and row are NaN
+    interpfun = interp1d(tvgrad.index, tvgrad, axis=0, bounds_error=False, fill_value=np.nan)
+    for zi in zorig[:-1]:
+        tvgrad.loc[zi] = interpfun(zi)
+    zmid = zmid.values
+    tvgrad.loc[zorig[0]] = tvgrad.loc[zmid[1]] # nearest values: second row (first row is NaN)
+    tvgrad.loc[zorig[-1]] = tvgrad.loc[zmid[-1]] # nearest values: last row
+    tvgrad = tvgrad.loc[zorig]
+    
+    tvgrad.index.name = 'height'    
+    tvgrad = tvgrad.stack().reorder_levels(order=['datetime','height']).sort_index()
+    return tvgrad
 
 # ------------------------------
 # Calculating turbulence spectra
